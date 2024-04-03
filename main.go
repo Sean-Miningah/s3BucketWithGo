@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 
 	"fileUploadAWS/repo"
+	"fileUploadAWS/utils"
 
 	"github.com/disintegration/imaging"
 )
@@ -48,16 +49,30 @@ func ResizeAndSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Upload the resized image to s3
-	repo := repo.NewS3Client()
-	bucketName := "your_bucket_name"
-	objectKey := "your_object_key"
-	err = repo.UploadFile(&bucketName, &objectKey, "test_image.jpg", &buf)
+	////////// load configurations  /////////
+	cwd, err := os.Getwd()
+	if err != nil {
+		log.Fatalf("Error getting current working directory: %v", err)
+	}
+	config, err := utils.LoadViperEnvironment(cwd)
+	if err != nil {
+		log.Fatalf("Error loading config: %s", err)
+	}
+	//////////////////////////////////////
+
+	///// Upload the resized image to s3
+	repo := repo.NewS3Client(config.AWS_S3_BUCKET_ACCESS_KEY, config.AWS_S3_BUCKET_SECRET_ACCESS_KEY, config.AWS_REGION)
+	presignedurl, err := repo.PutObject(config.AWS_BUCKET_NAME, "test_image", 60)
+	if err != nil {
+		log.Fatalf("Error generating presigned url config: %s", err)
+	}
+	err = repo.UploadFile(finalImage, presignedurl.URL)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		fmt.Fprintf(w, "Error uploading image to S3: %v", err)
 		return
 	}
+	////////////////////////
 
 	// Save the resized image
 	saveMessage := saveImage(finalImage)

@@ -1,11 +1,17 @@
 package repo
 
 import (
+	"bytes"
 	"context"
+	"image"
+	"image/jpeg"
 	"io"
 	"log"
+	"net/http"
+	"time"
 
-	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
@@ -18,39 +24,73 @@ const (
 )
 
 type Repo struct {
-	s3Client *s3.Client
+	s3Client          *s3.Client
+	s3PresignedClient *s3.PresignClient
 }
 
-func NewS3Client() *Repo {
-	cfg, err := config.LoadDefaultConfig(context.TODO(),
-		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
-			AWS_ACCESS_KEY_ID,
-			AWS_SECRET_ACCESS_KEY,
-			"",
-		)),
-		config.WithRegion(AWS_S3_REGION),
-	)
-	if err != nil {
-		log.Fatalf("unable to load AWS SDK config, %v", err)
+func NewS3Client(accessKey string, secretKey string, s3BucketRegion string) *Repo {
+	options := s3.Options{
+		Region:      s3BucketRegion,
+		Credentials: aws.NewCredentialsCache(credentials.NewStaticCredentialsProvider(accessKey, secretKey, "")),
 	}
 
-	client := s3.NewFromConfig(cfg)
+	client := s3.New(options, func(o *s3.Options) {
+		o.Region = s3BucketRegion
+		o.UseAccelerate = false
+	})
+
+	presignClient := s3.NewPresignClient(client)
 	return &Repo{
-		s3Client: client,
+		s3Client:          client,
+		s3PresignedClient: presignClient,
 	}
 }
 
-func (repo Repo) UploadFile(bucketName *string, objectKey *string, fileName string, file io.Reader) error {
-
-	_, err := repo.s3Client.PutObject(context.TODO(), &s3.PutObjectInput{
-		Bucket: bucketName,
-		Key:    objectKey,
-		Body:   file,
+func (repo Repo) PutObject(bucketName string, objectKey string, lifetimeSecs int64) (*v4.PresignedHTTPRequest, error) {
+	request, err := repo.s3PresignedClient.PresignPutObject(context.TODO(), &s3.PutObjectInput{
+		Bucket:        aws.String(bucketName),
+		Key:           aws.String(objectKey),
+		ContentType:   aws.String("jpeg"),
+		ContentLength: aws.Int64(1),
+	}, func(opts *s3.PresignOptions) {
+		opts.Expires = time.Duration(lifetimeSecs * int64(time.Second))
 	})
 	if err != nil {
-		log.Printf("Couldn't upload file %v to %v:%v. Here's why: %v\n",
-			fileName, bucketName, objectKey, err)
+		log.Printf("Couldn't get a presigned request to put %v:%v. Here's why: %v\n",
+			bucketName, objectKey, err)
+	}
+	return request, err
+}
+
+func (repo Repo) UploadFile(file image.Image, url string) error {
+	var buf bytes.Buffer
+	err := jpeg.Encode(&buf, file, nil)
+	if err != nil {
+		return nil
+	}
+	body := io.Reader(&buf)
+	request, err := http.NewRequest(http.MethodPut, url, body)
+	if err != nil {
 		return err
 	}
-	return nil
+
+	request.Header.Set("Content-Type", "image/jpeg")
+
+	client := &http.Client{}
+	resp, err := client.Do(request)
+	if err != nil {
+		log.Println("Error sending request:", err)
+		return err
+	}
+	defer resp.Body.Close() // Ensure proper closing
+
+	// body, err = httputil.DumpResponse(resp, true)
+	// if err != nil {
+	// 	log.Println("Error reading response body:", err)
+	// 	return err
+	// }
+
+	// log.Println("AWS upload file response body:", string(body))
+	log.Println("AWS ERROR: ", err)
+	return err
 }
