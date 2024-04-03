@@ -3,6 +3,7 @@ package repo
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"image"
 	"image/jpeg"
 	"io"
@@ -29,6 +30,7 @@ type Repo struct {
 }
 
 func NewS3Client(accessKey string, secretKey string, s3BucketRegion string) *Repo {
+	fmt.Printf("The keys are: %s", accessKey)
 	options := s3.Options{
 		Region:      s3BucketRegion,
 		Credentials: aws.NewCredentialsCache(credentials.NewStaticCredentialsProvider(accessKey, secretKey, "")),
@@ -46,12 +48,12 @@ func NewS3Client(accessKey string, secretKey string, s3BucketRegion string) *Rep
 	}
 }
 
-func (repo Repo) PutObject(bucketName string, objectKey string, lifetimeSecs int64) (*v4.PresignedHTTPRequest, error) {
+func (repo Repo) PutObject(bucketName string, objectKey string, lifetimeSecs int64, size int64) (*v4.PresignedHTTPRequest, error) {
 	request, err := repo.s3PresignedClient.PresignPutObject(context.TODO(), &s3.PutObjectInput{
-		Bucket:        aws.String(bucketName),
-		Key:           aws.String(objectKey),
-		ContentType:   aws.String("jpeg"),
-		ContentLength: aws.Int64(1),
+		Bucket: aws.String(bucketName),
+		Key:    aws.String(objectKey),
+		// ContentType:   aws.String("jpeg"),
+		// ContentLength: aws.Int64(size),
 	}, func(opts *s3.PresignOptions) {
 		opts.Expires = time.Duration(lifetimeSecs * int64(time.Second))
 	})
@@ -90,7 +92,11 @@ func (repo Repo) UploadFile(file image.Image, url string) error {
 	// 	return err
 	// }
 
-	// log.Println("AWS upload file response body:", string(body))
-	log.Println("AWS ERROR: ", err)
+	bytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Println("AWS upload file response body: ", string(bytes))
+	// log.Println("AWS ERROR: ", err)
 	return err
 }

@@ -62,7 +62,7 @@ func ResizeAndSave(w http.ResponseWriter, r *http.Request) {
 
 	///// Upload the resized image to s3
 	repo := repo.NewS3Client(config.AWS_S3_BUCKET_ACCESS_KEY, config.AWS_S3_BUCKET_SECRET_ACCESS_KEY, config.AWS_REGION)
-	presignedurl, err := repo.PutObject(config.AWS_BUCKET_NAME, "test_image", 60)
+	presignedurl, err := repo.PutObject(config.AWS_BUCKET_NAME, "test_image", 60, int64(imageSize(finalImage)))
 	if err != nil {
 		log.Fatalf("Error generating presigned url config: %s", err)
 	}
