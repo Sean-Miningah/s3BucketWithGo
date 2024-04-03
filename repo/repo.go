@@ -16,13 +16,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
-const (
-	AWS_S3_REGION         = ""
-	AWS_S3_BUCKET_NAME    = ""
-	AWS_ACCESS_KEY_ID     = ""
-	AWS_SECRET_ACCESS_KEY = ""
-)
-
 type Repo struct {
 	s3Client          *s3.Client
 	s3PresignedClient *s3.PresignClient
@@ -46,12 +39,12 @@ func NewS3Client(accessKey string, secretKey string, s3BucketRegion string) *Rep
 	}
 }
 
-func (repo Repo) PutObject(bucketName string, objectKey string, lifetimeSecs int64) (*v4.PresignedHTTPRequest, error) {
+func (repo Repo) PutObject(bucketName string, objectKey string, lifetimeSecs int64, size int64) (*v4.PresignedHTTPRequest, error) {
 	request, err := repo.s3PresignedClient.PresignPutObject(context.TODO(), &s3.PutObjectInput{
-		Bucket:        aws.String(bucketName),
-		Key:           aws.String(objectKey),
-		ContentType:   aws.String("jpeg"),
-		ContentLength: aws.Int64(1),
+		Bucket: aws.String(bucketName),
+		Key:    aws.String(objectKey),
+		// ContentType:   aws.String("jpeg"),
+		// ContentLength: aws.Int64(size),
 	}, func(opts *s3.PresignOptions) {
 		opts.Expires = time.Duration(lifetimeSecs * int64(time.Second))
 	})
@@ -83,14 +76,10 @@ func (repo Repo) UploadFile(file image.Image, url string) error {
 		return err
 	}
 	defer resp.Body.Close() // Ensure proper closing
-
-	// body, err = httputil.DumpResponse(resp, true)
+	// bytes, err := io.ReadAll(resp.Body)
 	// if err != nil {
-	// 	log.Println("Error reading response body:", err)
-	// 	return err
+	// 	log.Fatal(err)
 	// }
-
-	// log.Println("AWS upload file response body:", string(body))
-	log.Println("AWS ERROR: ", err)
+	// log.Println("AWS upload file response body: ", string(bytes))
 	return err
 }
