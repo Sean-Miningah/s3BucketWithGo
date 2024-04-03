@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"fmt"
 	"image"
 	"image/jpeg"
@@ -40,15 +39,6 @@ func ResizeAndSave(w http.ResponseWriter, r *http.Request) {
 
 	finalImage := resizeToTargetSize(imageFile, 100)
 
-	// A buffer to store the resized image
-	var buf bytes.Buffer
-	err = jpeg.Encode(&buf, finalImage, nil)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprintf(w, "Error endcoding image: %v", err)
-		return
-	}
-
 	////////// load configurations  /////////
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -76,11 +66,6 @@ func ResizeAndSave(w http.ResponseWriter, r *http.Request) {
 
 	// Save the resized image
 	saveMessage := saveImage(finalImage)
-
-	// Resize the image while preserving aspect ratio
-	// resizedImage := imaging.Resize(imageFile, targetWidth, targetHeight, imaging.Lanczos)
-	// saveMessage := saveImage(resizedImage)
-
 	fmt.Fprintf(w, "Image resized and saved successfully! %s", saveMessage)
 }
 

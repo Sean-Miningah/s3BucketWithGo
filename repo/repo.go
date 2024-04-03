@@ -3,7 +3,6 @@ package repo
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"image"
 	"image/jpeg"
 	"io"
@@ -17,20 +16,12 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
-const (
-	AWS_S3_REGION         = ""
-	AWS_S3_BUCKET_NAME    = ""
-	AWS_ACCESS_KEY_ID     = ""
-	AWS_SECRET_ACCESS_KEY = ""
-)
-
 type Repo struct {
 	s3Client          *s3.Client
 	s3PresignedClient *s3.PresignClient
 }
 
 func NewS3Client(accessKey string, secretKey string, s3BucketRegion string) *Repo {
-	fmt.Printf("The keys are: %s", accessKey)
 	options := s3.Options{
 		Region:      s3BucketRegion,
 		Credentials: aws.NewCredentialsCache(credentials.NewStaticCredentialsProvider(accessKey, secretKey, "")),
@@ -85,18 +76,10 @@ func (repo Repo) UploadFile(file image.Image, url string) error {
 		return err
 	}
 	defer resp.Body.Close() // Ensure proper closing
-
-	// body, err = httputil.DumpResponse(resp, true)
+	// bytes, err := io.ReadAll(resp.Body)
 	// if err != nil {
-	// 	log.Println("Error reading response body:", err)
-	// 	return err
+	// 	log.Fatal(err)
 	// }
-
-	bytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		log.Fatal(err)
-	}
-	log.Println("AWS upload file response body: ", string(bytes))
-	// log.Println("AWS ERROR: ", err)
+	// log.Println("AWS upload file response body: ", string(bytes))
 	return err
 }
