@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"image"
 	"image/jpeg"
@@ -9,6 +10,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+
+	"fileUploadAWS/repo"
 
 	"github.com/disintegration/imaging"
 )
@@ -35,6 +38,26 @@ func ResizeAndSave(w http.ResponseWriter, r *http.Request) {
 	}
 
 	finalImage := resizeToTargetSize(imageFile, 100)
+
+	// A buffer to store the resized image
+	var buf bytes.Buffer
+	err = jpeg.Encode(&buf, finalImage, nil)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		fmt.Fprintf(w, "Error endcoding image: %v", err)
+		return
+	}
+
+	// Upload the resized image to s3
+	repo := repo.NewS3Client()
+	bucketName := "your_bucket_name"
+	objectKey := "your_object_key"
+	err = repo.UploadFile(&bucketName, &objectKey, "test_image.jpg", &buf)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		fmt.Fprintf(w, "Error uploading image to S3: %v", err)
+		return
+	}
 
 	// Save the resized image
 	saveMessage := saveImage(finalImage)

@@ -2,6 +2,7 @@ package repo
 
 import (
 	"context"
+	"io"
 	"log"
 
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -11,7 +12,7 @@ import (
 
 const (
 	AWS_S3_REGION         = ""
-	AWS_S3_BUCKET         = ""
+	AWS_S3_BUCKET_NAME    = ""
 	AWS_ACCESS_KEY_ID     = ""
 	AWS_SECRET_ACCESS_KEY = ""
 )
@@ -37,4 +38,19 @@ func NewS3Client() *Repo {
 	return &Repo{
 		s3Client: client,
 	}
+}
+
+func (repo Repo) UploadFile(bucketName *string, objectKey *string, fileName string, file io.Reader) error {
+
+	_, err := repo.s3Client.PutObject(context.TODO(), &s3.PutObjectInput{
+		Bucket: bucketName,
+		Key:    objectKey,
+		Body:   file,
+	})
+	if err != nil {
+		log.Printf("Couldn't upload file %v to %v:%v. Here's why: %v\n",
+			fileName, bucketName, objectKey, err)
+		return err
+	}
+	return nil
 }
