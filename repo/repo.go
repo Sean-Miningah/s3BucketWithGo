@@ -39,12 +39,10 @@ func NewS3Client(accessKey string, secretKey string, s3BucketRegion string) *Rep
 	}
 }
 
-func (repo Repo) PutObject(bucketName string, objectKey string, lifetimeSecs int64, size int64) (*v4.PresignedHTTPRequest, error) {
+func (repo Repo) PutObject(bucketName string, objectKey string, lifetimeSecs int64) (*v4.PresignedHTTPRequest, error) {
 	request, err := repo.s3PresignedClient.PresignPutObject(context.TODO(), &s3.PutObjectInput{
 		Bucket: aws.String(bucketName),
 		Key:    aws.String(objectKey),
-		// ContentType:   aws.String("jpeg"),
-		// ContentLength: aws.Int64(size),
 	}, func(opts *s3.PresignOptions) {
 		opts.Expires = time.Duration(lifetimeSecs * int64(time.Second))
 	})
@@ -52,6 +50,21 @@ func (repo Repo) PutObject(bucketName string, objectKey string, lifetimeSecs int
 		log.Printf("Couldn't get a presigned request to put %v:%v. Here's why: %v\n",
 			bucketName, objectKey, err)
 	}
+	return request, err
+}
+
+func (repo Repo) DeleteObject(bucketName string, objectKey string, lifetimeSecs int64) (*v4.PresignedHTTPRequest, error) {
+	request, err := repo.s3PresignedClient.PresignDeleteObject(context.TODO(), &s3.DeleteObjectInput{
+		Bucket: aws.String(bucketName),
+		Key:    aws.String(objectKey),
+	}, func(opts *s3.PresignOptions) {
+		opts.Expires = time.Duration(lifetimeSecs * int64(time.Second))
+	})
+	if err != nil {
+		log.Printf("Couldn't get a presigned request to delete %v:%v. Here's why: %v\n",
+			bucketName, objectKey, err)
+	}
+
 	return request, err
 }
 
@@ -81,5 +94,19 @@ func (repo Repo) UploadFile(file image.Image, url string) error {
 	// 	log.Fatal(err)
 	// }
 	// log.Println("AWS upload file response body: ", string(bytes))
+	return err
+}
+
+func (repo Repo) DeleteFile(url string) error {
+	request, err := http.NewRequest(http.MethodDelete, url, nil)
+	if err != nil {
+		return err
+	}
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		return err
+	}
+
+	log.Printf("Delete Request Response status code: %v", response.StatusCode)
 	return err
 }

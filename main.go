@@ -1,45 +1,108 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"image"
-	"image/jpeg"
 	_ "image/png"
 	"log"
 	"net/http"
 	"os"
-	"path/filepath"
 
 	"fileUploadAWS/repo"
 	"fileUploadAWS/utils"
-
-	"github.com/disintegration/imaging"
 )
 
-const pictureDirectory = "pictures"
-const MaxFileSize = 2 * 1024 * 1024 // 2MB
+func UploadHandler(config utils.Config) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 
-// ResizeAndSave resizes and saves the image to a PNG file
-func ResizeAndSave(w http.ResponseWriter, r *http.Request) {
-	// Open uploaded file
-	file, _, err := r.FormFile("image")
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		fmt.Fprintf(w, "Error reading file: %v", err)
-		return
+		file, _, err := r.FormFile("image")
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprintf(w, "Error reading file: %v", err)
+			return
+		}
+		defer file.Close()
+
+		imageDoc, _, err := image.Decode(file)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			fmt.Fprintf(w, "Error encoding image: %v", err)
+			return
+		}
+
+		resizedImage := utils.ResizeImage(imageDoc)
+		filename, err := utils.SaveLocal(resizedImage)
+
+		repo := repo.NewS3Client(
+			config.AWS_S3_BUCKET_ACCESS_KEY,
+			config.AWS_S3_BUCKET_SECRET_ACCESS_KEY,
+			config.AWS_REGION,
+		)
+
+		// Create singed url used for uploading file
+		presignedurl, err := repo.PutObject(config.AWS_BUCKET_NAME, filename, 60)
+		if err != nil {
+			log.Fatalf("Error generating presigned url for put object: %s", err)
+		}
+		// Uploading document to S3
+		err = repo.UploadFile(resizedImage, presignedurl.URL)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			fmt.Fprintf(w, "Error uploading image to S3: %v", err)
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintf(w, "Successfully uploaded image: %s", filename)
 	}
-	defer file.Close()
+}
 
-	imageFile, _, err := image.Decode(file)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprintf(w, "Error encoding image: %v", err)
-		return
+func DeleteHandler(config utils.Config) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Read request body
+		type RequestBody struct {
+			Filename string `json:"filename"`
+		}
+		var data RequestBody
+		if r.Body != nil {
+			json.NewDecoder(r.Body).Decode(&data)
+		}
+
+		if data.Filename == "" {
+			w.WriteHeader(http.StatusInternalServerError)
+			fmt.Fprintf(w, "Filename must be provided")
+			return
+		}
+
+		repo := repo.NewS3Client(
+			config.AWS_S3_BUCKET_ACCESS_KEY,
+			config.AWS_S3_BUCKET_SECRET_ACCESS_KEY,
+			config.AWS_REGION,
+		)
+
+		presignedurl, err := repo.DeleteObject(config.AWS_BUCKET_NAME, data.Filename, 60)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			log.Fatalf("Error generating presigned url for put object: %s", err)
+			return
+		}
+
+		err = repo.DeleteFile(presignedurl.URL)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			log.Fatalf("Error deleting file from s3 bucket: %v", err)
+			return
+		}
+
+		w.WriteHeader(200)
+		fmt.Fprintf(w, "Successfully deleted file: %s", data.Filename)
 	}
+}
 
-	finalImage := resizeToTargetSize(imageFile, 100)
-
-	////////// load configurations  /////////
+func setupRoutes() {
+	// Load configurations from environment variables from .env
+	// at root of project
 	cwd, err := os.Getwd()
 	if err != nil {
 		log.Fatalf("Error getting current working directory: %v", err)
@@ -48,88 +111,8 @@ func ResizeAndSave(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Fatalf("Error loading config: %s", err)
 	}
-	//////////////////////////////////////
-
-	///// Upload the resized image to s3
-	repo := repo.NewS3Client(config.AWS_S3_BUCKET_ACCESS_KEY, config.AWS_S3_BUCKET_SECRET_ACCESS_KEY, config.AWS_REGION)
-	presignedurl, err := repo.PutObject(config.AWS_BUCKET_NAME, "test_image", 60, int64(imageSize(finalImage)))
-	if err != nil {
-		log.Fatalf("Error generating presigned url config: %s", err)
-	}
-	err = repo.UploadFile(finalImage, presignedurl.URL)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprintf(w, "Error uploading image to S3: %v", err)
-		return
-	}
-	////////////////////////
-
-	// Save the resized image
-	saveMessage := saveImage(finalImage)
-	fmt.Fprintf(w, "Image resized and saved successfully! %s", saveMessage)
-}
-
-func resizeToTargetSize(img image.Image, targetSizeMB int) image.Image {
-	// Adjust the dimensions until the size constraint is met (approximately 2MB)
-	bit := 1024 * 1024
-	targetSize := targetSizeMB * bit
-
-	// for {
-	// width := img.Bounds().Dx()
-	bounds := img.Bounds()
-	w := bounds.Dx()
-	h := bounds.Dy()
-	fmt.Printf("width: %d, height: %d\n", w, h)
-	height := int(float64(w) * 3 / 4)
-	// height := img.Bounds().Dy()
-	width := w
-
-	resizedImg := imaging.Thumbnail(img, width, height, imaging.Lanczos)
-	// Check the size of the resized image
-	beforeSize := imageSize(img) / bit
-	size := imageSize(resizedImg) / bit
-	log.Printf("before resizing : %v after resizing %v", beforeSize, size)
-	if size <= targetSize {
-		rate := size / beforeSize
-		log.Printf("Image compression rate %v", rate)
-	}
-	return resizedImg
-}
-
-func imageSize(img image.Image) int {
-	return img.Bounds().Dx() * img.Bounds().Dy() * 3 // Assuming 3 bytes per pixel (for RGB images)
-}
-
-func saveImage(image image.Image) string {
-	// timestamp := time.Now().Format("20060102150405")
-	// filename := fmt.Sprintf("%s.jpg", timestamp)
-	filename := fmt.Sprintf("testImg-%v.jpg", 1)
-	fullPath := filepath.Join(pictureDirectory, filename)
-
-	err := os.MkdirAll(pictureDirectory, os.ModePerm) // Create directory if needed
-	if err != nil {
-		log.Println("Error creating directory:", err)
-		return ""
-	}
-
-	outputFile, err := os.Create(fullPath)
-	if err != nil {
-		log.Println("Error creating output file:", err)
-		return ""
-	}
-	defer outputFile.Close()
-
-	err = jpeg.Encode(outputFile, image, nil)
-	if err != nil {
-		log.Println("Error encoding image:", err)
-		return ""
-	}
-
-	return outputFile.Name()
-}
-
-func setupRoutes() {
-	http.HandleFunc("/upload", ResizeAndSave)
+	http.HandleFunc("/upload", UploadHandler(config))
+	http.HandleFunc("/delete", DeleteHandler(config))
 	http.ListenAndServe(":8080", nil)
 }
 
