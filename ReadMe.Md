@@ -1,4 +1,4 @@
-# Upload File to An S3 bucket using PresingedURLS in Go 
+# Upload File to A S3 bucket using PresingedURLS in Go 
 
 This repository contains a simple rest api that uploads files to an s3 bucket and delete files files from an s3 bucket 
 
